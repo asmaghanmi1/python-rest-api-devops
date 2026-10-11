@@ -13,6 +13,10 @@ jobs:
   test:
     runs-on: ubuntu-latest
 
+    env:
+      MONGO_URI: mongodb://localhost:27017
+      MONGO_DB: python_rest_api_devops_test
+
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
@@ -28,9 +32,7 @@ jobs:
           python -m pip install -r requirements.txt
 
       - name: Check Python syntax
-        run: |
-          python -m py_compile app.py
+        run: python -m py_compile app.py
 
       - name: Run automated tests
-        run: |
-          python -m pytest -v
+        run: python -m pytest -v
