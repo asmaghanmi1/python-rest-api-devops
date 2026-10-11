@@ -60,10 +60,10 @@ def db_test():
             "message": "MongoDB connection successful"
         })
 
-    except Exception as e:
+    except Exception:
         return jsonify({
             "status": "DOWN",
-            "message": str(e)
+            "message": "MongoDB connection failed"
         }), 500
 
 
@@ -74,9 +74,9 @@ def db_test():
 
 @app.route("/tasks", methods=["POST"])
 def create_task():
-    data = request.get_json()
+    data = request.get_json(silent=True)
 
-    if not data or not isinstance(data, dict):
+    if not isinstance(data, dict):
         return jsonify({
             "error": "A valid JSON object is required"
         }), 400
@@ -87,7 +87,14 @@ def create_task():
         return jsonify({
             "error": "title is required"
         }), 400
-    
+
+    description = data.get("description", "")
+
+    if not isinstance(description, str):
+        return jsonify({
+            "error": "description must be a string"
+        }), 400
+
     allowed_statuses = ["todo", "in_progress", "done"]
     status = data.get("status", "todo")
 
@@ -99,8 +106,8 @@ def create_task():
 
     task = {
         "title": title.strip(),
-        "description": data.get("description", ""),
-        "status": data.get("status", "todo")
+        "description": description,
+        "status": status
     }
 
     result = tasks_collection.insert_one(task)
@@ -133,17 +140,16 @@ def get_tasks():
 
 @app.route("/tasks/<task_id>", methods=["GET"])
 def get_task(task_id):
-    try:
-        task = tasks_collection.find_one({
-            "_id": ObjectId(task_id)
-        })
-
-    except Exception:
+    if not ObjectId.is_valid(task_id):
         return jsonify({
             "error": "Invalid task ID"
         }), 400
 
-    if not task:
+    task = tasks_collection.find_one({
+        "_id": ObjectId(task_id)
+    })
+
+    if task is None:
         return jsonify({
             "error": "Task not found"
         }), 404
@@ -156,37 +162,69 @@ def get_task(task_id):
 # =========================
 # UPDATE
 # PUT /tasks/<task_id>
+# Update only supplied fields
 # =========================
 
 @app.route("/tasks/<task_id>", methods=["PUT"])
 def update_task(task_id):
-    try:
-        data = request.get_json()
-
-        if not isinstance(data, dict):
-            return jsonify({
-                "error": "A valid JSON object is required"
-            }), 400
-
-        update_data = {
-            "title": data.get("title"),
-            "description": data.get("description"),
-            "status": data.get("status")
-        }
-
-        result = tasks_collection.update_one(
-            {
-                "_id": ObjectId(task_id)
-            },
-            {
-                "$set": update_data
-            }
-        )
-
-    except Exception:
+    if not ObjectId.is_valid(task_id):
         return jsonify({
             "error": "Invalid task ID"
         }), 400
+
+    data = request.get_json(silent=True)
+
+    if not isinstance(data, dict) or not data:
+        return jsonify({
+            "error": "A non-empty JSON object is required"
+        }), 400
+
+    update_data = {}
+
+    # Update title only if provided
+    if "title" in data:
+        title = data["title"]
+
+        if not isinstance(title, str) or not title.strip():
+            return jsonify({
+                "error": "title must be a non-empty string"
+            }), 400
+
+        update_data["title"] = title.strip()
+
+    # Update description only if provided
+    if "description" in data:
+        description = data["description"]
+
+        if not isinstance(description, str):
+            return jsonify({
+                "error": "description must be a string"
+            }), 400
+
+        update_data["description"] = description
+
+    # Update status only if provided
+    if "status" in data:
+        allowed_statuses = ["todo", "in_progress", "done"]
+        status = data["status"]
+
+        if not isinstance(status, str) or status not in allowed_statuses:
+            return jsonify({
+                "error": "Invalid status",
+                "allowed_statuses": allowed_statuses
+            }), 400
+
+        update_data["status"] = status
+
+    if not update_data:
+        return jsonify({
+            "error": "No valid fields to update"
+        }), 400
+
+    result = tasks_collection.update_one(
+        {"_id": ObjectId(task_id)},
+        {"$set": update_data}
+    )
 
     if result.matched_count == 0:
         return jsonify({
@@ -205,15 +243,14 @@ def update_task(task_id):
 
 @app.route("/tasks/<task_id>", methods=["DELETE"])
 def delete_task(task_id):
-    try:
-        result = tasks_collection.delete_one({
-            "_id": ObjectId(task_id)
-        })
-
-    except Exception:
+    if not ObjectId.is_valid(task_id):
         return jsonify({
             "error": "Invalid task ID"
         }), 400
+
+    result = tasks_collection.delete_one({
+        "_id": ObjectId(task_id)
+    })
 
     if result.deleted_count == 0:
         return jsonify({
